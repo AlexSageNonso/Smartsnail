@@ -1,0 +1,228 @@
+/* --- GLOBAL WEB3 THEME --- */
+body {
+  background: #0f051d;
+  color: #ffffff;
+  font-family: 'Inter', -apple-system, sans-serif;
+  margin: 0;
+}
+
+.task-container {
+  padding: 15px;
+  background: radial-gradient(circle at top right, #1a0b2e, #0f051d);
+  min-height: 100vh;
+}
+
+/* --- HEADER & NAVIGATION --- */
+.task-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 25px;
+  padding: 10px 0;
+}
+
+.task-header h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 0 15px;
+  letter-spacing: -0.5px;
+}
+
+/* --- SEGMENTED TABS --- */
+.task-buttons {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 5px;
+  border-radius: 14px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.task-buttons button {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #a0a0a0;
+  font-weight: 600;
+  font-size: 13px;
+  transition: 0.3s;
+}
+
+.task-buttons button.active {
+  background: #8a2be2;
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(138, 43, 226, 0.4);
+}
+
+/* --- TASK LIST & ROWS --- */
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-row-web3 {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* backdrop-filter: blur(10px); */
+  transition: all 0.3s ease;
+  position: relative;
+  transform: translateZ(0);
+}
+
+.task-row-web3.locked {
+  opacity: 0.5;
+  filter: grayscale(1);
+  cursor: not-allowed;
+  pointer-events: none; /* Silently prevents clicks */
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.task-row-web3.completed {
+  opacity: 0.4;
+  filter: grayscale(0.8);
+}
+
+.task-row-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-icon-wrapper {
+  width: 44px;
+  height: 44px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-title-web3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #efefef;
+  margin-bottom: 2px;
+}
+
+.reward-amount {
+  color: #00ffa3;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+/* --- MODAL POPUP --- */
+.popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  /* backdrop-filter causes white flash on mobile — replace with background color */
+  /* backdrop-filter: blur(8px); */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+  /* Prevents GPU repaint flash */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  will-change: opacity;
+  /* Darker background compensates for removing blur */
+  background: rgba(0, 0, 0, 0.92);
+}
+.web3-modal {
+  background: linear-gradient(145deg, #1a0b2e, #0f051d);
+  background-color: #1a0b2e; /* Fallback prevents white flash */
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  border: 1px solid rgba(0, 255, 163, 0.2);
+  border-radius: 28px;
+  width: 100%;
+  max-width: 350px;
+  padding: 30px 24px;
+  position: relative;
+  box-shadow: 0 0 40px rgba(0, 255, 163, 0.15);
+}
+
+.modal-icon-glow {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 15px;
+  background: rgba(138, 43, 226, 0.1);
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #8a2be2;
+  box-shadow: 0 0 30px rgba(138, 43, 226, 0.3);
+}
+
+.modal-icon-glow svg {
+  width: 40px !important;
+  height: 40px !important;
+}
+
+.modal-title {
+  text-align: center;
+  font-size: 18px;
+  margin-bottom: 20px;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* --- BUTTONS & ACTIONS --- */
+.web3-primary-btn {
+  width: 100%;
+  padding: 16px;
+  border-radius: 16px;
+  background: linear-gradient(90deg, #00ffa3, #00d1ff);
+  color: #000;
+  font-weight: 800;
+  font-size: 14px;
+  text-transform: uppercase;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0, 255, 163, 0.3);
+  margin-top: 10px;
+  transition: 0.2s;
+}
+
+.web3-primary-btn.disconnect-mode {
+  background: transparent !important;
+  border: 1px solid #ff4d4d !important;
+  color: #ff4d4d !important;
+  box-shadow: none !important;
+}
+
+.web3-primary-btn:active {
+  transform: scale(0.97);
+}
+
+.web3-secondary-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* Text Box & Copy */
+.web3-text-box {
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 15px;
+  border: 1px solid rgba(138, 43, 226, 0.2);
+  position: relative;
+}

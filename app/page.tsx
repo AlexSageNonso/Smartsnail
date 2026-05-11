@@ -1,0 +1,647 @@
+'use client';
+import axios from "axios";
+import React, { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
+import Loader from "@/loader";
+import confetti from 'canvas-confetti';
+import ScrollingText from '@/components/ScrollingText';
+import { useWallet } from './context/walletContext';
+import { ConnectButton } from './ConnectButton';
+import UserSyncManager from '@/src/utils/userSync';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useOnboardingTour } from '@/app/hooks/useOnboardingTour';
+import OnboardingTour, { TourStep } from '@/components/OnboardingTour';
+import BoostIndicator from './boost/BoostIndicator';
+// --- TYPES ---
+type Click = {
+  opacity: number;
+  velocityY: number;
+  id: number;
+  x: number;
+  y: number;
+  tappingRate: number;
+};
+
+interface NftData {
+  id: string;
+  name: string;
+  imageUrl: string;
+  collection: string;
+}
+
+interface FighterData {
+  id: string;
+  name: string;
+  height: number;
+  weight: number;
+  weightClass: string;
+  nft?: NftData | null; 
+}
+
+type User = {
+  telegramId: string;
+  points: number;
+  tappingRate: number;
+  first_name?: string;
+  last_name?: string;
+  hasClaimedWelcome?: boolean;
+  fighter?: FighterData | null;
+  boostExpiresAt?: string | Date | null;
+};
+
+export default function Home() {
+  // --- STATE ---
+  const [firstName, setFirstName] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [energy, setEnergy] = useState(1500);
+  const [clicks, setClicks] = useState<Click[]>([]);
+  const [isClicking, setIsClicking] = useState(false);
+  const [speed] = useState(1); // (kept, harmless)
+  const [isLoading, setLoading] = useState(true);
+  const [showWelcomePopup, setShowWelcomePopup] = useState(false); // ✅ FIX: default false
+  const [isVideoLoading, setIsVideoLoading] = useState(true);
+  const [videoError] = useState(false); // kept, unused but harmless
+  const [notification] = useState<string | null>(null);
+ const { showTour, completeTour } = useOnboardingTour('home', user?.telegramId ?? null);
+  const canShowTour = showTour && !showWelcomePopup && !isLoading && user?.hasClaimedWelcome === true;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const syncManager = useRef<UserSyncManager>();
+  const inactivityTimeout = useRef<NodeJS.Timeout | null>(null);
+  const { isConnected, walletAddress } = useWallet();
+  // const canShowTour = showTour && !showWelcomePopup && !isLoading;
+  const maxEnergy = 1500;
+  const ENERGY_REDUCTION_RATE = 20;
+  const STORAGE_KEY = (telegramId: string) => `user_${telegramId}`;
+  const [isPressing, setIsPressing] = useState(false);
+  
+  const formatWalletAddress = (address: string | null) => {
+    if (!address) return '';
+    return `${address.slice(0, 4)}...${address.slice(-4)}`;
+  };
+
+
+
+
+  // const resetAppSession = () => {
+  //   localStorage.clear();
+  //   window.Telegram?.WebApp?.close(); // Optional: closes the Mini App
+  //   // OR: window.location.reload(); // if you prefer reloading the app
+  // };
+
+  
+  const triggerHaptic = (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft' = 'medium') => {
+  // console.log("HAPTIC TRIGGERED", style);
+
+  if (typeof window !== 'undefined') {
+    // console.log("Telegram object:", (window as any).Telegram);
+  }
+
+  if ((window as any).Telegram?.WebApp?.HapticFeedback) {
+    (window as any).Telegram.WebApp.HapticFeedback.impactOccurred(style);
+  } else {
+    // console.log("❌ Haptic not available");
+  }
+};
+
+  const shake = Math.min(user?.tappingRate ? user.tappingRate * 0.8 : 2, 10);
+
+  // --- LEVELS LOGIC ---
+  const getLevel = (pts: number) => {
+    if (pts < 1000000) return 'Camouflage';
+    if (pts <= 3000000) return 'Speedy';
+    if (pts <= 6000000) return 'Strong';
+    if (pts <= 10000000) return 'Sensory';
+    return 'African Giant Snail/god NFT';
+  };
+
+ const HOME_TOUR: TourStep[] = [
+  {
+    targetId: "clicker-main", // ID for the central snail video
+    emoji: "🐚",
+    label: "Tap to earn",
+    text: "Tap the snail repeatedly to earn points. The faster you tap, the more you earn."
+  },
+  {
+    targetId: "energy-section", // ID for the rocket energy bar
+    emoji: "⚡",
+    label: "Energy bar",
+    text: "Your energy drains as you tap and refills automatically when you rest."
+  },
+  {
+    targetId: "nav-staking", // ID for the gloves icon
+    emoji: "🥊",
+    label: "Fight arena",
+    text: "Stake your Points/Shells on real-life fighters and win big."
+  },
+  {
+    targetId: "nav-marketplace", // ID for the shop icon
+    emoji: "🛒",
+    label: "NFT Marketplace",
+    text: "Explore the marketplace — buy SmartSnails or Manchies NFTs and enjoy exclusive rewards."
+  },
+  {
+    targetId: "bottom-frens", // ID for the FRENS button
+    emoji: "👥",
+    label: "Invite frens",
+    text: "Tap FRENS to invite friends — you earn bonus Points/Shells for every referral."
+  },
+  {
+    targetId: "header-rank", // ID for the trophy/rank icon in header
+    emoji: "🏆",
+    label: "Leaderboard",
+    text: "Check where you rank against other players worldwide."
+  },
+
+  {
+    targetId: "gym-membership-card",
+    emoji: "🐚",
+    label: "Shell-Powered Fitness",
+    text: "Use your earned points to pay for memberships at our partnered elite gyms. Your tapping literally pays for your training."
+  },
+];
+
+const createNewUser = async (tg: any) => {
+  try {
+    const initData = tg.initData;
+    const user = tg.initDataUnsafe?.user;
+
+    // Send the data required by your backend POST handler
+    const res = await axios.post('/api/user', {
+      telegramId: user?.id?.toString(),
+      firstName: user?.first_name,
+      lastName: user?.last_name,
+      username: user?.username
+    }, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(initData ? { "Authorization": `tma ${initData}` } : {})
+      }
+    });
+
+    const createdUser = res.data;
+    localStorage.setItem(STORAGE_KEY(createdUser.telegramId), JSON.stringify(createdUser));
+    setUser(createdUser);
+    setShowWelcomePopup(true);
+  } catch (err) {
+    console.error("Failed to create new user", err);
+  }
+}; 
+
+const initUserData = async (telegramId: string, tg: any) => {
+  const initData = tg.initData;
+
+  try {
+    // 1. MUST use dynamic route to match [telegramId]/route.ts
+    // 2. MUST include Authorization header
+    const res = await axios.get(`/api/user/${telegramId}`, {
+      headers: {
+        "Authorization": `tma ${initData}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    setUser(res.data);
+    localStorage.setItem(STORAGE_KEY(telegramId), JSON.stringify(res.data));
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      await createNewUser(tg); // Trigger the now-fixed POST flow
+    } else {
+      console.error("User fetch failed", err);
+    }
+  }
+};
+
+// --- INIT ---
+useEffect(() => {
+  const waitForTelegram = (): Promise<any> =>
+    new Promise((resolve, reject) => {
+      let tries = 0;
+      const check = () => {
+        const tg = (window as any).Telegram?.WebApp;
+        if (tg?.initDataUnsafe?.user?.id) return resolve(tg);
+        if (tries++ > 40) return reject(new Error("Telegram failed to initialize"));
+        setTimeout(check, 150);
+      };
+      check();
+    });
+
+ const initApp = async () => {
+      setLoading(true); 
+      try {
+        const tg = await waitForTelegram();
+        tg.ready();
+        tg.expand();
+
+        const telegramId = tg.initDataUnsafe.user.id.toString();
+        setFirstName(tg.initDataUnsafe.user.first_name || "Snail");
+
+        const storageKey = STORAGE_KEY(telegramId);
+        const cached = localStorage.getItem(storageKey);
+
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            setUser(parsed);
+            // Logic check: if they haven't claimed welcome, show popup
+            setShowWelcomePopup(!parsed.hasClaimedWelcome);
+          } catch {
+            localStorage.removeItem(storageKey);
+          }
+        }
+
+        if (!syncManager.current) {
+          syncManager.current = new UserSyncManager(telegramId);
+        }
+
+        await initUserData(telegramId, tg);
+
+      } catch (err: any) {
+        setError("Connection issue. Please restart the app.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initApp();
+  }, []);
+
+// --- GLOBAL USER UPDATE LISTENER ---
+useEffect(() => {
+  const handler = (event: CustomEvent<User>) => {};
+  window.addEventListener('userDataUpdate', handler as EventListener);
+  return () => window.removeEventListener('userDataUpdate', handler as EventListener);
+}, []);
+
+// --- SYNC CALLBACK ---
+useEffect(() => {
+  if (!syncManager.current || !user?.telegramId) return;
+  syncManager.current.onSyncSuccess = (serverPoints: number) => {};
+  return () => syncManager.current?.cleanup();
+}, [user?.telegramId]);
+
+// --- VIDEO PLAY SAFETY ---
+useEffect(() => {
+  videoRef.current?.play().catch(() => {});
+}, [isLoading]);
+
+  // --- CLICK HANDLER ---
+  const handleClick = async (e: React.MouseEvent) => {
+    if (!user?.telegramId || energy <= 0 || !syncManager.current) return;
+      triggerHaptic('medium'); 
+
+    const tappingRate = Number(user.tappingRate) || 1;
+
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, points: prev.points + tappingRate };
+      localStorage.setItem(STORAGE_KEY(prev.telegramId), JSON.stringify(updated));
+      return updated;
+    });
+
+    setEnergy(prev => Math.max(0, prev - ENERGY_REDUCTION_RATE));
+    syncManager.current.addPoints(tappingRate);
+    setIsClicking(true);
+
+    const newClick = {
+      id: Date.now(),
+      x: e.clientX,
+      y: e.clientY,
+      tappingRate,
+      velocityY: -2,
+      opacity: 1,
+    };
+
+    setClicks(prev => [...prev, newClick]);
+
+    if (inactivityTimeout.current) clearTimeout(inactivityTimeout.current);
+    inactivityTimeout.current = setTimeout(() => setIsClicking(false), 100);
+  };
+
+  const handleAnimationEnd = (id: number) => {
+    setClicks(prev => prev.filter(click => click.id !== id));
+  };
+
+  // --- CLAIM ---
+  const handleClaim = async () => {
+    try {
+      if (!user?.telegramId || user.hasClaimedWelcome) return;
+      setLoading(true);
+
+      const initData = window.Telegram?.WebApp?.initData;
+
+      const res = await fetch("/api/claim-welcome", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          ...(initData ? { "Authorization": `tma ${initData}` } : {})
+        },
+        body: JSON.stringify({ timestamp: new Date().toISOString() }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message);
+
+      const updatedUser = {
+        ...user,
+        points: data.points,
+        hasClaimedWelcome: true, // This will trigger the Tour Guide next
+      };
+
+      localStorage.setItem(STORAGE_KEY(user.telegramId), JSON.stringify(updatedUser));
+      setUser(updatedUser);
+      setShowWelcomePopup(false);
+
+      confetti({ particleCount: 150, spread: 70 });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  // --- ENERGY REFILL (SAFE) ---
+  useEffect(() => {
+    if (isClicking || energy >= maxEnergy) return;
+
+    const interval = setInterval(() => {
+      setEnergy(prev => Math.min(maxEnergy, prev + 10));
+    }, 300);
+
+    return () => clearInterval(interval);
+  }, [isClicking, energy]);
+
+  if (isLoading)
+
+   
+    return (
+      <div className="h-screen bg-[#0f021a] flex items-center justify-center">
+        <Loader />
+      </div>
+    );
+
+
+  return (
+        <div className="min-h-screen bg-[#0f021a] text-white flex flex-col items-center relative overflow-hidden pb-32">
+          <ToastContainer theme="dark" />
+          
+          {/* BACKGROUND GLOWS */}
+          <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
+            <div className="absolute top-[-10%] left-[-10%] w-[70%] h-[50%] bg-purple-900/20 blur-[120px] rounded-full" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[70%] h-[50%] bg-indigo-900/20 blur-[120px] rounded-full" />
+          </div>
+
+          {/* HEADER SECTION */}
+          <div className="relative z-20 w-full px-6 pt-6 flex justify-between items-center">
+            <div>
+              <h1 className="text-xl font-black tracking-tight text-purple-400">SMARTSNAIL</h1>
+              <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">App</p>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-white/5 backdrop-blur-lg p-1.5 rounded-2xl border border-white/10">
+              <Link href="/Leaderboard"><img src="/images/info/output-onlinepngtools (4).png" className="w-6 h-6 p-1" alt="rank" /></Link>
+              <ConnectButton />
+              <Link href="/info"><img src="/images/info/output-onlinepngtools (1).png" className="w-6 h-6 p-1" alt="info" /></Link>
+            </div>
+          </div>
+
+          {/* TELEPROMPTER AREA - Using fixed so it NEVER pushes content */}
+         
+
+          {/* WALLET ADDRESS - Positioned absolute so it doesn't displace main content */}
+          <div className="absolute top-24 left-0 w-full flex justify-center z-10">
+            {isConnected && walletAddress && (
+              <div className="px-3 py-1 bg-purple-900/30 border border-purple-500/20 rounded-md text-[10px] font-mono text-purple-300 backdrop-blur-sm">
+                Connected: {formatWalletAddress(walletAddress)}
+              </div>
+            )}
+          </div>
+ 
+          {/* MAIN CONTENT - mt-32 ensures it stays below header/wallet/teleprompter regardless of screen size */}
+          <div className="relative z-10 flex flex-col items-center mt-20">
+            <BoostIndicator 
+        user={{ 
+          // Use optional chaining to prevent crashes if user is null
+          tappingRate: user?.tappingRate || 1, 
+          boostExpiresAt: user?.boostExpiresAt || new Date().toISOString(),
+          
+          // FIX: Instead of using 'fxckedUpBagsQty' (local state), 
+          // use the value directly from the user object in context.
+          fxckedUpBagsQty: (user as any)?.fxckedUpBagsQty || 0,
+          humanRelationsQty: (user as any)?.humanRelationsQty || 0
+        }} 
+      />
+            <div className="flex items-center gap-3">
+              <img src="/images/shell.png" className="w-12 h-12" alt="shell" />
+              <span className="text-5xl font-black italic tracking-tighter">
+                {user?.points.toLocaleString()}
+              </span>
+            </div>
+            
+            <Link href="/level" className="mt-4 flex items-center gap-2 bg-purple-500/10 border border-purple-500/30 px-4 py-2 rounded-xl">
+              <img src="/images/trophy.png" className="w-5 h-5" alt="trophy" />
+              <span className="text-xs font-bold uppercase tracking-widest text-purple-300">
+                {getLevel(user?.points || 0)} Level
+              </span>
+            </Link>
+
+            {user?.fighter && (
+              <div className="mt-2 flex items-center gap-2 bg-gradient-to-r from-red-600/20 to-purple-600/20 border border-red-500/40 px-3 py-2 rounded-xl backdrop-blur-md">
+                <img src="/images/boxing-gloves.png" className="w-4 h-4 brightness-125" alt="fighter icon" />
+                <span className="text-[10px] font-black uppercase italic tracking-tighter text-red-400">
+                  Pro Fighter
+                </span>
+              </div>
+            )}
+          </div>
+
+                  {/* <button onClick={resetAppSession} className="mt-4 text-red-600">
+              Reset & Switch Account
+            </button> */}
+
+      <div className="relative flex-grow flex items-center justify-center w-full max-sm mt-8 px-6">
+        <div className="absolute right-8 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-50">
+          {[
+            { href: "/staking", img: "/images/boxing-gloves.png", id: "nav-staking" },
+            { href: "/gym", img: "/images/gym.png",id:"gym-membership-card" },
+            { href: "/register", img: "/images/register.png" },
+            { href: "/marketplace", img: "/images/shop.png", id: "nav-marketplace" }
+          ].map((item, idx) => (
+            <Link key={idx} href={item.href} id={item.id}>
+              <div
+                onPointerDown={() => triggerHaptic('rigid')}
+                className="w-12 h-12 bg-purple-900/40 backdrop-blur-xl border border-purple-500/30 rounded-2xl flex items-center justify-center hover:scale-110 active:scale-90 transition-all shadow-xl">
+                <img src={item.img} className="w-6 h-6" alt="nav" />
+              </div>
+            </Link>
+          ))}
+        </div>
+
+        {/* CLICKER VIDEO WITH REPAIRED VIBRATION */}
+        <motion.div
+        id="clicker-main"
+          onPointerDown={(e) => {
+            if (showWelcomePopup || energy <= 0) return;
+            setIsPressing(true);
+            handleClick(e as any);
+          }}
+          onPointerUp={() => setIsPressing(false)}
+          onPointerLeave={() => setIsPressing(false)}
+          onPointerCancel={() => setIsPressing(false)}
+          initial={false}
+          animate={{
+                scale: isPressing ? 1.06 : 1,
+                x: isPressing ? [-shake, shake] : 0,
+                y: isPressing ? [shake, -shake] : 0,
+              }}
+              transition={{
+                duration: 0.08,
+                repeat: isPressing ? 1 : 0,
+                repeatType: "reverse",
+                ease: "linear",
+              }}
+
+          className={`relative w-full aspect-square rounded-full border-[10px] 
+            border-purple-900/20 overflow-hidden shadow-[0_0_60px_rgba(168,85,247,0.2)]
+            cursor-pointer ${energy <= 0 ? 'grayscale opacity-40' : ''}`}
+        >
+          <video
+            ref={videoRef}
+            src="/images/snails.mp4"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            className="w-full h-full object-cover scale-110 pointer-events-none"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-purple-900/40 to-transparent" />
+        </motion.div>
+
+        <AnimatePresence>
+          {clicks.map((click) => {
+            const spawnY = click.y - 150;
+            const floatY = spawnY - 200;
+
+            return (
+              <motion.div
+                key={click.id}
+                initial={{ opacity: 1, y: spawnY, x: click.x - 20, scale: 0.9 }}
+                animate={{ opacity: 0, y: floatY, x: click.x + (Math.random() * 60 - 30), scale: 1.5 }}
+                transition={{ duration: 0.7, ease: "easeOut" }}
+                onAnimationComplete={() => handleAnimationEnd(click.id)}
+                className="fixed pointer-events-none text-4xl font-black text-purple-400 z-[100] drop-shadow-[0_0_15px_rgba(168,85,247,0.9)]"
+              >
+                +{click.tappingRate}
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
+
+      <div className="fixed bottom-0 left-0 w-full z-40 p-6 pb-8 bg-gradient-to-t from-[#0f021a] via-[#0f021a]/90 to-transparent">
+        <div className="max-w-md mx-auto pointer-events-auto" id="energy-section">
+          {/* HIGH VISIBILITY ROCKET FIRE ENERGY BAR */}
+          <div className="flex justify-between items-end mb-2 px-1">
+            <div className="flex items-center gap-2">
+              <img src="/images/turbosnail-1.png" className="w-8 h-8" alt="bolt" />
+              <span className="text-xl font-black">{energy} <span className="text-[10px] text-zinc-500">/ {maxEnergy}</span></span>
+            </div>
+          </div>
+          
+          <div className="w-full h-4 bg-black/50 rounded-full border border-white/10 p-0.5 overflow-hidden shadow-[0_0_15px_rgba(234,179,8,0.1)]">
+            <motion.div 
+              className="h-full rounded-full bg-gradient-to-r from-orange-600 via-yellow-400 to-white shadow-[0_0_20px_rgba(251,191,36,0.8)] relative"
+              animate={{ width: `${(energy / maxEnergy) * 100}%` }}
+              transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
+            >
+              {/* Glowing shimmer effect for visibility */}
+              <div className="absolute inset-0 w-full h-full bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.4)_50%,transparent_100%)] animate-[shimmer_1.5s_infinite]" />
+            </motion.div>
+          </div>
+
+          <nav className="mt-6 bg-[#1a0b2e]/90 backdrop-blur-2xl border border-purple-500/20 rounded-[2.5rem] flex items-center justify-around p-2 shadow-2xl">
+            <Link href="/referralsystem" id="bottom-frens" className="flex flex-col items-center py-2 px-6 rounded-3xl hover:bg-white/5 transition-all">
+              <img src="/images/SNAILNEW.png" className="w-8 h-8" alt="frens" />
+              <span className="text-[9px] font-black mt-1 text-zinc-400">FRENS</span>
+            </Link>
+            <div className="h-8 w-[1px] bg-white/10" />
+            <Link href="/task" className="flex flex-col items-center py-2 px-6 rounded-3xl hover:bg-white/5 transition-all">
+              <img src="/images/shell.png" className="w-7 h-7" alt="earn" />
+              <span className="text-[9px] font-black mt-1 text-zinc-400">EARN</span>
+            </Link>
+            <div className="h-8 w-[1px] bg-white/10" />
+            <Link href="/boost" className="flex flex-col items-center py-2 px-6 rounded-3xl hover:bg-white/5 transition-all">
+              <img src="/images/startup.png" className="w-7 h-7" alt="boost" />
+              <span className="text-[9px] font-black mt-1 text-zinc-400">BOOST</span>
+            </Link>
+          </nav>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {showWelcomePopup && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 30 }} 
+              animate={{ scale: 1, y: 0 }}
+              className="bg-[#1a0b2e] border border-purple-500/30 p-6 rounded-[2.5rem] w-full max-w-sm text-center shadow-[0_0_80px_rgba(168,85,247,0.25)]"
+            >
+              <h2 className="text-2xl font-black mb-1 uppercase italic text-transparent bg-clip-text bg-gradient-to-b from-white to-purple-400">
+                Welcome, {firstName}!
+              </h2>
+              
+              <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black/40 border border-white/5 mb-4 relative">
+                {isVideoLoading && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                    <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+                <video 
+                  autoPlay loop muted playsInline 
+                  onLoadedData={() => setIsVideoLoading(false)}
+                  className={`w-full h-full object-cover ${isVideoLoading ? 'opacity-0' : 'opacity-1'}`}
+                >
+                  <source src="/videos/speedsnail-optimized.mp4" type="video/mp4" />
+                </video>
+              </div>
+
+              <ScrollingText />
+
+              <AnimatePresence>
+                {!isVideoLoading && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                    <button 
+                      onClick={handleClaim}
+                      className="w-full mt-6 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 py-4 rounded-2xl font-black uppercase tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.4)] active:scale-95 transition-all"
+                    >
+                      Click to claim 5000 shells
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+          {error && <div className="fixed bottom-32 bg-red-600/80 px-4 py-2 rounded-lg text-xs z-50 backdrop-blur-md">{error}</div>}
+          
+          <style jsx global>{`
+            @keyframes shimmer {
+              0% { transform: translateX(-100%); }
+              100% { transform: translateX(100%); }
+            }
+                `}</style>
+                <AnimatePresence>
+        {canShowTour && <OnboardingTour steps={HOME_TOUR} onDone={completeTour} />}
+      </AnimatePresence>
+    </div>
+            );
+}
