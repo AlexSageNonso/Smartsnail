@@ -190,12 +190,10 @@ const createNewUser = async (tg: any) => {
   }
 }; 
 
-const initUserData = async (telegramId: string, tg: any) => {
+const initUserData = async (telegramId, tg) => {
   const initData = tg.initData;
 
   try {
-    // 1. MUST use dynamic route to match [telegramId]/route.ts
-    // 2. MUST include Authorization header
     const res = await axios.get(`/api/user/${telegramId}`, {
       headers: {
         "Authorization": `tma ${initData}`,
@@ -203,16 +201,29 @@ const initUserData = async (telegramId: string, tg: any) => {
       }
     });
 
+    // If successful, sync the local storage with fresh DB data
     setUser(res.data);
     localStorage.setItem(STORAGE_KEY(telegramId), JSON.stringify(res.data));
-  } catch (err: any) {
+    
+  } catch (err) {
     if (err?.response?.status === 404) {
-      await createNewUser(tg); // Trigger the now-fixed POST flow
+      console.warn("User not found in DB. Clearing local data...");
+      
+      // 1. Clear the specific user key
+      localStorage.removeItem(STORAGE_KEY(telegramId));
+      
+      // 2. Clear state
+      setUser(null);
+      
+      // 3. Optional: Redirect or Re-create
+      // If you want them to start over immediately:
+      await createNewUser(tg); 
     } else {
       console.error("User fetch failed", err);
     }
   }
 };
+// l
 
 // --- INIT ---
 useEffect(() => {
