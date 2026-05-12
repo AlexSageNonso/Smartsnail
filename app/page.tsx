@@ -190,7 +190,7 @@ const createNewUser = async (tg: any) => {
   }
 }; 
 
-const initUserData = async (telegramId, tg) => {
+const initUserData = async (telegramId: string, tg: any) => {
   const initData = tg.initData;
 
   try {
@@ -205,8 +205,8 @@ const initUserData = async (telegramId, tg) => {
     setUser(res.data);
     localStorage.setItem(STORAGE_KEY(telegramId), JSON.stringify(res.data));
     
-  } catch (err) {
-    if (err?.response?.status === 404) {
+  } catch (err: any) { 
+  if (err?.response?.status === 404) {
       console.warn("User not found in DB. Clearing local data...");
       
       // 1. Clear the specific user key
